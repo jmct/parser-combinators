@@ -84,6 +84,14 @@ Now, as long as we ensure that the initial input stream did not start with
 whitespace, we are able to make sure that intial whitespace is not an issue for
 our parsers.
 
+Since our notion of success is a list of parses, it's very easy to define the
+parser that represents failure in all cases, regardless of the input stream:
+
+> failure :: Parser a
+> failure s = []
+
+It could also have been defined as `failure = const []`.
+
 \section{Parsing Literals}
 
 Let's try writing a parser that matches a given string exactly. This will be
@@ -96,25 +104,25 @@ The `Parser` type synonym helps us being encapsulating the notion of a parser
 into a single name, `Parser`, but we can expand it to see what's going on
 underneath:
 
-<         |----------------------------------- The literal we want to match
-<         v                       v----------- The resulting value of the parse
-< lit1 :: String -> String -> [(String, String)]
-<                    ^                   ^---- The remaining input stream
-<	             |------------------------ The initial input stream
+<        |----------------------------------- The literal we want to match
+<        v                       v----------- The resulting value of the parse
+< lit :: String -> String -> [(String, String)]
+<                   ^                   ^---- The remaining input stream
+<                   |------------------------ The initial input stream
 
 That's a bunch of `String`s! Let's try writing a function with this type:
 
-> lit1 :: String -> Parser String
-> lit1 l s
->   | l == pref = [(l, dropConsumed len s)]
->   | otherwise = []
->  where
->    len = length l
->    pref = take len s
+< lit :: String -> Parser String
+< lit l s
+<   | l == pref = [(l, dropConsumed len s)]
+<   | otherwise = []
+<  where
+<    len = length l
+<    pref = take len s
 
 We don't always want literal parsing to return the raw `String` though, sometimes
 we want to match a literal `String` but have it represent some other type. This is
-easy to accomplish with some addtions to `lit1`.
+easy to accomplish with some addtions to `lit`.
 
 > litWith :: String -> (String -> a) -> Parser a
 > litWith l f s
@@ -126,9 +134,11 @@ easy to accomplish with some addtions to `lit1`.
 
 Above, `litWith` allows the user to provide a way to convert a `String` into
 the type they desire as the result of the parser. This is strictly more
-general than `lit1` as we can define `lit1` as
+general than `lit` as we can define `lit` as
 
-< lit1 l s = litWith l id s
+> lit :: String -> Parser String
+> lit l s = litWith l id s
+
 
 If parsing a known literal always results in the same value, we can just pass
 a constant function to `litWith`. Giving us another useful function:
@@ -141,13 +151,96 @@ For example, we can define a parser for "True" as follows
 
 < true = litConst "True" True
 
+We can 
+
+\section{Combining Parsers}
+
+\subsection{Choice}
+
 `true` has the type `Parser Bool`, which is what we would expect. However,
 we're pretty limited here as we can only parse known literal strings, but
 without accepting any alternatives. If we want to write a `bool` parser in
 terms of `litConst`, we need to be able to handle the possibility that the
-input stream contains _either_ "True" or "False".
+input stream should parse if it starts with "True" _or_ "False". This is
+sometimes called the 'choice' operator.
+
+< choice :: Parser a -> Parser a -> Parser a
+< choice p1 p2 = \s -> case p1 s of
+<                        [] -> p2 s
+<                        s' -> s'
+
+`choice` attempts to parse the input stream with `p1` and if that fails (via
+returning an empty list), it returns the result of passing the input stream to
+`p2`. This is fine, in that it does a sensible thing, but it's not exactly what
+we want.
+
+Remember that our notion of parsing allows for _multiple resulting parses_,
+hence returning a list of results. Looking back at `choice`, we can see that
+if `p1` were to succeed, we would never see the possible parses from `p2`,
+which would violate this notion of all possible parses. The solution is
+to be more generous with what we return:
 
 > (<|>) :: Parser a -> Parser a -> Parser a
-> p1 <|> p2 = \s -> case p1 s of
->                     [] -> p2 s
->                     s  -> s
+> p1 <|> p2 = \s -> p1 s ++ p2 s
+
+The definition of `<|>` is more of what we'd expect from a parser combinator
+library. In fact, most parser combinator libraries provide a function called
+`<|>` in their API, though the definitions might differ due to implementation
+concerns, their meanings tend to align.
+
+We can naturally extend this idea to taking a list of parsers and performing
+a choice over all of them, and we can represent that as a fold:
+
+> oneOf :: [Parser a] -> Parser a
+> oneOf ps = foldr (<|>) failure ps
+
+\subsection{Sequence}
+
+Now that we can parse alternatives, let's figure out the dual notion of a parser
+that has to accept two sub-parses. You can think of this as 'sequence' or 'and',
+we're going to call it `andThen`, you'll see why in a moment.
+
+< andThen :: Parser a -> Parser b -> Parser (a,b)
+< andThen p1 p2 = \s -> [((x,y), s'') | (x, s')  <- p1 s
+<                                     , (y, s'') <- p2 s']
+
+For those that may not be familiar with list comprehensions, let's break this
+down, part by part. Once again, it is important to note that parsers result in
+a _lists_ of parses. Therefore `p1 s` returns a list of pairs, the result of
+the parse and the remaining input stream. With that in mind, `(x, s')  <- p1 s`
+can be read as 'for each `(x, s')` that is generated by `p1 s`. Here, `x` is
+the result of the parser `p1` and `s'` is the remaining input stream. This
+part of the list comprehension, something of the form `r <- g`, is known
+as a _generator_.
+
+The definition of `andThen` uses a second generator, `(y, s'') <- p2 s'`. This
+second generator _uses part of the result of the first generator_. By relying
+on the results of the first parse, this generator can only happen 'after' the
+first. That solves one part of problem: sequencing. However, we also want to
+ensure that the overall parse is only valid if _both_ parsers are successful.
+
+List comprehensions help us here as well: If either generator results in an
+empty list, the entire list comprehension results in an empty list. This
+perfectly aligns with the behaviour we expect form our `andThen` parser. If
+either parser fails (return the empty list) the entire parser fails.
+
+Lastly, we have the expression to the left of the `|`, `((x,y), s'')`. This
+states that the final result of the list comprehension is a nested pair where
+the first element is the pair of `x` and `y` from our generators, and the
+second element is `s''` which is the remaining input stream returned from our
+_second_ generator. This enforces that the overall parser starts from where the
+`p2` left off.
+
+\subsection{Generalized Sequence}
+
+The `andThen` function defined above is very useful, but it has one major
+downside: it always returns a pair for it's result, requiring the user of the
+function to deconstruct or manipulate the pair when they actually want some
+other, non tuple, combination of the two parsers. Take for example a grammar
+that specifies that each `if` is followed by an expression (note, we haven't
+defined the parser `expr` yet):
+
+< lit "if" `andThen` expr :: Parser (String, Expr)
+
+It is unlikely that the person parsing such a thing will actually need the
+string `if`, 
