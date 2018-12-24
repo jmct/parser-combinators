@@ -236,11 +236,68 @@ _second_ generator. This enforces that the overall parser starts from where the
 The `andThen` function defined above is very useful, but it has one major
 downside: it always returns a pair for it's result, requiring the user of the
 function to deconstruct or manipulate the pair when they actually want some
-other, non tuple, combination of the two parsers. Take for example a grammar
-that specifies that each `if` is followed by an expression (note, we haven't
-defined the parser `expr` yet):
+other, non tuple, combination of the two parsers.
+
+There are several ways of solving this problem, the one we are going to take
+first is to keep `andThen` as it is, but provide a nice way of handling its
+return value that makes it easy for users of the function to change the result
+of a parser.  Take for example a grammar that specifies that each `if` is
+followed by an expression (note, we haven't defined the parser `expr` yet):
 
 < lit "if" `andThen` expr :: Parser (String, Expr)
 
 It is unlikely that the person parsing such a thing will actually need the
-string `if`, 
+string `if`, so we want a function that looks something like the following
+
+< f1 :: Parser (a,b) -> Parser b
+< f1 p = \s -> case p s of
+<                rs -> map sndOfFst rs
+<   where
+<     -- For each of the possible parses,
+<     -- take only the second part of the result pair
+<     sndOfFst (x, s') = (snd x, s')
+
+This solves the specific problem of ignoring the first part (by returning only
+the `snd` of the resulting tuple of the parse), but it's clearly a pattern
+we'll want to reuse. The code for ignoring the second element in a tuple will
+look almost identical, replacing the `snd` with a `fst`, for instance. So let's
+generalize the function:
+
+< f2 :: ((a,b) -> c) -> Parser (a,b) -> Parser c
+< f2 f p = \s -> case p s of
+<                  rs -> map fOfFst rs
+<   where
+<     -- For each of the possible parses,
+<     -- apply the provided function to each result
+<     fOfFst (x, s') = (f x, s')
+
+Alright, this is nice. Provided with a function that can turn a pair into some
+desired type, we can pass that function and a `Parser` that returns a pair and
+get back a `Parser` that returns our desired type. However, in the process of
+generalizing from `f1` to `f2` we don't actually use the fact that the parser
+passed to `f2` returns a pair, it's only the type that requires this, nothing
+about the structure of the code itself. That's another hint to generalize in
+that direction:
+
+
+> f3 :: (a -> b) -> Parser a -> Parser b
+> f3 f p = \s -> case p s of
+>                  rs -> map fOfFst rs
+>   where
+>     -- For each of the possible parses,
+>     -- apply the provided function to each result
+>     fOfFst (x, s') = (f x, s')
+
+Notice that the code didn't change at all for `f3`, so if we hadn't provided a
+type signature to `f2` the compiler would have inferred the type we gave `f3`!
+If you squint a bit this looks a lot like the `map` function, but instead of
+`[a]` and `[b]` we have `Parser a` and `Parser b`. This pattern is exactly that
+which the `Functor` type-class is made to address, which means that `Parser`
+is a `Functor`:
+
+> instance Functor Parser where
+>   fmap f p = \s -> case p s of
+>                      rs -> map fOfFst rs
+>     where
+>       fOfFst (x, s') = (f x, s')
+
