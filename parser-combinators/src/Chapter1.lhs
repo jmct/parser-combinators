@@ -2,7 +2,9 @@ We are going to build a parser combinator library from scratch. This is meant
 to solidify your understanding of functions as first-class values and to
 illustrate the common funcitonal programming pattern of a DSL-as-a-library.
 
-> module Parser where
+%include poly.fmt
+
+> module Chapter1 where
 > import Data.List (isPrefixOf)
 > import Data.Char (isSpace)
 
