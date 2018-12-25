@@ -240,6 +240,22 @@ second element is `s''` which is the remaining input stream returned from our
 _second_ generator. This enforces that the overall parser starts from where the
 `p2` left off.
 
+The user of `andThen` often knows how they want to combine the resulting pair.
+For this reason, it's useful to have a function similar to `andThen` but with
+an additional parameter that specifies the desired combination:
+
+> andThenWith :: (a -> b -> c) -> Parser a -> Parser b -> Parser c
+> andThenWith f p1 p2 = \s -> [(f x y, s'') | (x, s')  <- p1 s
+>                                           , (y, s'') <- p2 s']
+
+\subsubsection{ggj}
+
+> oneOrMany :: Parser a -> Parser [a]
+> oneOrMany p = andThenWith (:) p (zeroOrMore p)
+>
+> zeroOrMore :: Parser a -> Parser [a]
+> zeroOrMore p = oneOrMany p <|> succeed []
+
 \subsubsection{Generalized Sequence}
 
 The `andThen` function defined above is very useful, but it has one major

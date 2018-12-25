@@ -1,2 +1,8 @@
 dist-newstyle
 .ghc.environment.x86_64-linux-8.4.4
+*.pdf
+*.aux
+*.html
+*.out
+*.log
+*.tex
