@@ -2,8 +2,6 @@ We are going to build a parser combinator library from scratch. This is meant
 to solidify your understanding of functions as first-class values and to
 illustrate the common funcitonal programming pattern of a DSL-as-a-library.
 
-%include poly.fmt
-
 > module Chapter1 where
 > import Data.List (isPrefixOf)
 > import Data.Char (isSpace)
@@ -13,7 +11,7 @@ You'll notice that we don't import a lot, and nothing we import is outside of
 configurable library. So we limit ourselves to the Haskell Prelude and
 a few functions from Data.Char and Data.List.
 
-\section{Some definitons and concepts}
+\subsection{Some definitons and concepts}
 
 Our first step is to decide what a parser _is_. This turns out to be quite
 concise in a language with first-class functions: A parser for something (which
@@ -90,11 +88,11 @@ Since our notion of success is a list of parses, it's very easy to define the
 parser that represents failure in all cases, regardless of the input stream:
 
 > failure :: Parser a
-> failure s = []
+> failure = \s -> []
 
 It could also have been defined as `failure = const []`.
 
-\section{Parsing Literals}
+\subsection{Parsing Literals}
 
 Let's try writing a parser that matches a given string exactly. This will be
 a new function that takes the literal string we want to match, and returns
@@ -155,9 +153,9 @@ For example, we can define a parser for "True" as follows
 
 We can 
 
-\section{Combining Parsers}
+\subsection{Combining Parsers}
 
-\subsection{Choice}
+\subsubsection{Choice}
 
 `true` has the type `Parser Bool`, which is what we would expect. However,
 we're pretty limited here as we can only parse known literal strings, but
@@ -196,7 +194,7 @@ a choice over all of them, and we can represent that as a fold:
 > oneOf :: [Parser a] -> Parser a
 > oneOf ps = foldr (<|>) failure ps
 
-\subsection{Sequence}
+\subsubsection{Sequence}
 
 Now that we can parse alternatives, let's figure out the dual notion of a parser
 that has to accept two sub-parses. You can think of this as 'sequence' or 'and',
@@ -233,7 +231,7 @@ second element is `s''` which is the remaining input stream returned from our
 _second_ generator. This enforces that the overall parser starts from where the
 `p2` left off.
 
-\subsection{Generalized Sequence}
+\subsubsection{Generalized Sequence}
 
 The `andThen` function defined above is very useful, but it has one major
 downside: it always returns a pair for it's result, requiring the user of the
