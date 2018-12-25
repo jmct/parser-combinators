@@ -92,6 +92,15 @@ parser that represents failure in all cases, regardless of the input stream:
 
 It could also have been defined as `failure = const []`.
 
+Almost as simple as the definition of `failuer`, is the notion
+of trivial success:
+
+> succeed :: a -> Parser a
+> succeed x = \s -> [(x, s)]
+
+Because it's impossible to come up with something of _any_ type, `success`
+takes the value that you'd like to have represent a success.
+
 \subsection{Parsing Literals}
 
 Let's try writing a parser that matches a given string exactly. This will be
@@ -104,11 +113,11 @@ The `Parser` type synonym helps us being encapsulating the notion of a parser
 into a single name, `Parser`, but we can expand it to see what's going on
 underneath:
 
-<        |----------------------------------- The literal we want to match
-<        v                       v----------- The resulting value of the parse
+< --     |----------------------------------- The literal we want to match
+< --     v                       v----------- The resulting value of the parse
 < lit :: String -> String -> [(String, String)]
-<                   ^                   ^---- The remaining input stream
-<                   |------------------------ The initial input stream
+< --                ^                   ^---- The remaining input stream
+< --                |------------------------ The initial input stream
 
 That's a bunch of `String`s! Let's try writing a function with this type:
 
@@ -200,9 +209,9 @@ Now that we can parse alternatives, let's figure out the dual notion of a parser
 that has to accept two sub-parses. You can think of this as 'sequence' or 'and',
 we're going to call it `andThen`, you'll see why in a moment.
 
-< andThen :: Parser a -> Parser b -> Parser (a,b)
-< andThen p1 p2 = \s -> [((x,y), s'') | (x, s')  <- p1 s
-<                                     , (y, s'') <- p2 s']
+> andThen :: Parser a -> Parser b -> Parser (a,b)
+> andThen p1 p2 = \s -> [((x,y), s'') | (x, s')  <- p1 s
+>                                     , (y, s'') <- p2 s']
 
 For those that may not be familiar with list comprehensions, let's break this
 down, part by part. Once again, it is important to note that parsers result in
@@ -295,9 +304,9 @@ If you squint a bit this looks a lot like the `map` function, but instead of
 which the `Functor` type-class is made to address, which means that `Parser`
 is a `Functor`:
 
-> instance Functor Parser where
->   fmap f p = \s -> case p s of
->                      rs -> map fOfFst rs
->     where
->       fOfFst (x, s') = (f x, s')
+< instance Functor Parser where
+<   fmap f p = \s -> case p s of
+<                      rs -> map fOfFst rs
+<     where
+<       fOfFst (x, s') = (f x, s')
 
