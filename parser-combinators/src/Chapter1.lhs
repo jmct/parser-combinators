@@ -167,7 +167,35 @@ For example, we can define a parser for "True" as follows
 
 < true = litConst "True" True
 
-We can 
+\subsection{Parsing Variations of Strings}
+
+Often you will need to parser different types of strings for your grammar, all
+lowercase strings, or strings that cannot begin with a digit, for example.
+
+A simple illustration of this is a parser for strings that only include
+alphabetical characters.
+
+> alpha :: Parser String
+> alpha s
+>   | null word        = []
+>   | all isAlpha word = [(word, dropConsumed word s)]
+>   | otherwise        = []
+>  where
+>     word = takeWhile (not . isSep) s
+
+Many languages have rules about the capitalization of variables. Haskell, for
+example, requires that variables begin in lowercase letters. A simpler version
+of this is defined below:
+
+> variable :: Parser String
+> variable s
+>   | isCamelCase word = [(word, dropConsumed word s)]
+>   | otherwise        = []
+>  where
+>     word = takeWhile (not . isSep) s
+>     isCamelCase (c:cs) = isLower c && all isAlphaNum cs
+>     isCamelCase _      = False
+
 
 \subsection{Combining Parsers}
 
