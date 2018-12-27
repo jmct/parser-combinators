@@ -4,7 +4,8 @@ illustrate the common funcitonal programming pattern of a DSL-as-a-library.
 
 > module Chapter1 where
 > import Data.List (isPrefixOf)
-> import Data.Char (isSpace)
+> import Data.Char (isSpace, isDigit, isAlpha
+>                  ,isLower, isAlphaNum, isPunctuation)
 
 You'll notice that we don't import a lot, and nothing we import is outside of
 `base`. Our goal is the simplest exposition, not the most efficient or
@@ -66,19 +67,27 @@ do lexical analysis before parsing, so that this isn't a concern for the
 parser. However, it's not hard to write some helper functions in order to
 facilitate dealing with extraneous whitespace.
 
-> dropConsumed :: Int -> String -> String
-> dropConsumed n = dropWhile isSpace . drop n
+> dropConsumed :: String -> String -> String
+> dropConsumed s = dropWhile isSpace . drop (length s)
 
-The function `dropConsumed` takes a an integer, removes the numer of characters
-specified by the integer from the beginning of the `String` and then drops any
-additional whitespace from the beginning of the remaining stream. This way our
-parsers will never have whitespace at the beginning of their input stream.
+The function `dropConsumed` takes a `String`, removes the number of characters
+specified by the length of the string from the beginning of the input stream
+and then drops any additional whitespace from the beginning of the remaining
+stream. This way our parsers will never have whitespace at the beginning of
+their input stream.
 
-> bool2 :: Parser Bool
-> bool2 s
->   | "True"  `isPrefixOf` s = [(True, dropConsumed 4 s)]
->   | "False" `isPrefixOf` s = [(False, dropConsumed 5 s)]
->   | otherwise              = []
+< bool2 :: Parser Bool
+< bool2 s
+<   | "True"  `isPrefixOf` s = [(True, dropConsumed 4 s)]
+<   | "False" `isPrefixOf` s = [(False, dropConsumed 5 s)]
+<   | otherwise              = []
+
+It will also be useful for us to define a function that determines whether
+a character is 'separator' or not. For this tutorial we define a separator
+as being either a literal separator (like `,`, or `;`) or white space.
+
+> isSep :: Char -> Bool
+> isSep c = isSpace c || isPunctuation c
 
 Now, as long as we ensure that the initial input stream did not start with
 whitespace, we are able to make sure that intial whitespace is not an issue for
@@ -123,10 +132,9 @@ That's a bunch of `String`s! Let's try writing a function with this type:
 
 < lit :: String -> Parser String
 < lit l s
-<   | l == pref = [(l, dropConsumed len s)]
+<   | l == pref = [(l, dropConsumed l s)]
 <   | otherwise = []
 <  where
-<    len = length l
 <    pref = take len s
 
 We don't always want literal parsing to return the raw `String` though, sometimes
@@ -135,11 +143,10 @@ easy to accomplish with some addtions to `lit`.
 
 > litWith :: String -> (String -> a) -> Parser a
 > litWith l f s
->   | l == pref = [(f l, dropConsumed len s)]
+>   | l == pref = [(f l, dropConsumed l s)]
 >   | otherwise = []
 >  where
->    len = length l
->    pref = take len s
+>    pref = take (length l) s
 
 Above, `litWith` allows the user to provide a way to convert a `String` into
 the type they desire as the result of the parser. This is strictly more
