@@ -26,11 +26,11 @@ Let's write a parser that accepts boolen values. The parser will return `Bool`
 values if the input stream has literally "True" or literally "False", and
 return an empty list for any other value.
 
-> bool1 :: Parser Bool
-> bool1 s
->   | "True"  `isPrefixOf` s = [(True, drop 4 s)]
->   | "False" `isPrefixOf` s = [(False, drop 5 s)]
->   | otherwise              = []
+< bool1 :: Parser Bool
+< bool1 s
+<   | "True"  `isPrefixOf` s = [(True, drop 4 s)]
+<   | "False" `isPrefixOf` s = [(False, drop 5 s)]
+<   | otherwise              = []
 
 We can test this on a few inputs in `ghci`. First we'll try on inputs that the
 parser should accept:
