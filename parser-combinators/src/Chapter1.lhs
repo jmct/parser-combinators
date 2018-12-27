@@ -99,16 +99,14 @@ parser that represents failure in all cases, regardless of the input stream:
 > failure :: Parser a
 > failure = \s -> []
 
-It could also have been defined as `failure = const []`.
+Almost as simple as the definition of `failure`, is the notion of trivial
+success. Unlike `failure`, `succeed` takes an argument because it's impossible
+to come up with something of _any_ type (the `a` in `Parser a`), so `success`
+takes the value that you'd like to have represent a success.
 
-Almost as simple as the definition of `failuer`, is the notion
-of trivial success:
 
 > succeed :: a -> Parser a
 > succeed x = \s -> [(x, s)]
-
-Because it's impossible to come up with something of _any_ type, `success`
-takes the value that you'd like to have represent a success.
 
 \subsection{Parsing Literals}
 
@@ -177,7 +175,7 @@ alphabetical characters.
 
 > alpha :: Parser String
 > alpha s
->   | null word        = []
+>   | null word        = [] -- This is very important!
 >   | all isAlpha word = [(word, dropConsumed word s)]
 >   | otherwise        = []
 >  where
