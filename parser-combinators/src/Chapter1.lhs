@@ -281,7 +281,30 @@ an additional parameter that specifies the desired combination:
 > andThenWith f p1 p2 = \s -> [(f x y, s'') | (x, s')  <- p1 s
 >                                           , (y, s'') <- p2 s']
 
-\subsubsection{ggj}
+One simple example of `andThenWith` would be parsing something like
+a configuration file. You may have to parser fields and theirs
+values, such as "city: York". This could be accomplished
+with
+
+< cityField :: Parser String
+< cityField = andThenWith (\x y -> y) (lit "city:") alpha
+
+Testing this out on a few examples shows that it matches our intuitions:
+
+< *Chapter1> let cityField = andThenWith (flip const) (lit "city:") alpha
+< *Chapter1> cityField "city: York"
+< [("York","")]
+< *Chapter1> cityField "city: York\nname: Jose"
+< [("York","name: Jose")]
+< *Chapter1> cityField "cities: York"
+< []
+
+
+\subsubsection{Repeated parsers and optional parsers}
+
+Often grammars allow for repeated sequences of the same pattern (take
+Our `cityField` parser above requires that the `city` field is only one word,
+but we know that come cities
 
 > oneOrMany :: Parser a -> Parser [a]
 > oneOrMany p = andThenWith (:) p (zeroOrMore p)
