@@ -279,7 +279,8 @@ an additional parameter that specifies the desired combination:
 
 > andThenWith :: (a -> b -> c) -> Parser a -> Parser b -> Parser c
 > andThenWith f p1 p2 = \s -> [(f x y, s'') | (x, s')  <- p1 s
->                                           , (y, s'') <- p2 s']
+>                                             , (y, s'') <- p2 s']
+
 
 One simple example of `andThenWith` would be parsing something like
 a configuration file. You may have to parser fields and theirs
@@ -302,15 +303,33 @@ Testing this out on a few examples shows that it matches our intuitions:
 
 \subsubsection{Repeated parsers and optional parsers}
 
-Often grammars allow for repeated sequences of the same pattern (take
-Our `cityField` parser above requires that the `city` field is only one word,
-but we know that come cities
+Often grammars allow for repeated sequences of the same pattern (take Our
+`cityField` parser above requires that the `city` field is only one word, but
+we know that many cities have multiple words in their name. This necessitates
+the ability to parse a pattern multiple times, we'll call this `oneOrMany`:
 
 > oneOrMany :: Parser a -> Parser [a]
 > oneOrMany p = andThenWith (:) p (zeroOrMore p)
->
+
+As you can see, in order to parser `oneOrMany` of some parser, `p`, you require
+a successful parse of `p` followed by `zeroOrMore` parses of the same `p`. Now
+we can define `zerOrMore`:
+
 > zeroOrMore :: Parser a -> Parser [a]
 > zeroOrMore p = oneOrMany p <|> succeed []
+
+`zeroOrMore` is composed of two choices. If there is at least one pattern to
+parse then `oneOrMany` would succeed!  Of course, `zeroOrMore` should be
+successful if there are zero parses, which is why the definition includes the
+choice of `succeed []`.
+
+A degenerate case of `zeroOrMore` would be `zeroOrOne`, or alternatively `option`:
+
+> parseWith :: (a -> b) -> Parser a -> Parser b
+> parseWith f p = \i -> [(f x, s) | (x, s) <- p i]
+
+> option :: Parser a -> Parser (Maybe a)
+> option p = parseWith Just p <|> succeed Nothing
 
 \subsubsection{Generalized Sequence}
 
