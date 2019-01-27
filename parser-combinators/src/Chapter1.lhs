@@ -4,13 +4,22 @@ illustrate the common funcitonal programming pattern of a DSL-as-a-library.
 
 > module Chapter1 where
 > import Data.List (isPrefixOf)
-> import Data.Char (isSpace, isDigit, isAlpha
+> import Data.Char (isSpace, isDigit, isAlpha, toLower
 >                  ,isLower, isAlphaNum, isPunctuation)
 
 You'll notice that we don't import a lot, and nothing we import is outside of
 `base`. Our goal is the simplest exposition, not the most efficient or
 configurable library. So we limit ourselves to the Haskell Prelude and
 a few functions from Data.Char and Data.List.
+
+Because this is written for intermediate Haskellers, we're going to motivate
+many of the choices we make with examples. In particular, we take a different
+approach than many other parser combinator tutorial, instead of starting off
+with the type definition for parsers and immediately defining all sorts of
+type-class instances, we motivate each type-class instance with an example that
+is difficult to accomplish without the instance declaration.  This may be
+boring for those of you that are very comfortable with many of the type-classes
+we'll use, in which case you may wish to skim this chapter quickly.
 
 \subsection{Some definitons and concepts}
 
@@ -20,9 +29,139 @@ we'll call `a`) is a function that takes an input `String` and returns all the
 possible `a`s that could result, as well as any remaining input that was not
 consumed. In Haskell types, this results in the following:
 
-> type Parser a = String -> [(a,String)]
+< type Parser a = String -> [(a,String)]
 
-Let's write a parser that accepts boolen values. The parser will return `Bool`
+Because we will want to define various type-class instances for `Parser`s,
+we will wrap the definition in a `newtype`:
+
+
+> newtype Parser a = P { parse :: String -> [(a,String)] }
+
+Now let's write three of the most trivial parser: one that always fails,
+one that always succeeds with a default value, and one that always consumes
+one character of the input stream.
+
+Since our notion of success is a list of parses, it's very easy to define the
+parser that represents failure in all cases, regardless of the input stream:
+
+> failure :: Parser a
+> failure = P $ \s -> []
+
+Almost as simple as the definition of `failure`, is the notion of trivial
+success. Unlike `failure`, `succeed` takes an argument because it's impossible
+to come up with something of _any_ type (the `a` in `Parser a`), so `success`
+takes the value that you'd like to have represent a success.
+
+> succeed :: a -> Parser a
+> succeed x = P $ \s -> [(x, s)]
+
+The final of the three trivial parsers is the one that always consumes one
+character of its input:
+
+> item :: Parser Char
+> item = P $ \s -> case s of
+>                    []   -> []
+>                    c:cs -> [(c,cs)]
+
+Let's use each of these primitive parsers to see if it matches your intuition:
+
+```
+ghci> parse failure "The Beatles"
+[]
+ghci> parse (succeed 3.14) "The Beatles"
+[(3.14,"The Beatles")]
+ghci> parse (succeed "Billy Preston") "The Beatles"
+[("Billy Preston","The Beatles")]
+ghci> parse item "The Beatles"
+[('T',"he Beatles")]
+```
+
+One step up from these primitive parsers is a parser that matches some
+desired input:
+
+> sat :: (Char -> Bool) -> Parser Char
+> sat p = P $ \s -> [ (c, cs) | (c,cs) <- parse item s, p c ]
+
+Using `sat` we can write a parser that only accepts a specific character from
+the input stream:
+
+> char :: Char -> Parser Char
+> char c = sat (== c)
+
+Now we're getting somewhere! We can actually use this parser to accept or
+reject inputs:
+
+```
+ghci> parse (char 'A') "ABBA"
+[('A',"BBA")]
+ghci> parse (char 'A') "Queen"
+[]
+```
+
+Now that we have some primitive parsers, let's consider how we might want
+to combine parsers. Let's imagine part of a grammar for arithmetic
+expressions:
+
+```
+expression : mult | add
+
+mult : expression '*' expression
+add  : expression '+' expression
+```
+
+The above grammar demonstrates two of the fundamental building blocks for
+parsers: choice (an expression can take the form of a `mult` _or_ an `add`) and
+sequence.
+
+Choice can be represented by the `Alternative` type-class, which has the following
+definition
+
+```{.haskell}
+class Applicative f => Alternative (f :: * -> *) where
+  empty :: f a
+  (<|>) :: f a -> f a -> f a
+  some  :: f a -> f [a]
+  many  :: f a -> f [a]
+  {-# MINIMAL empty, (<|>) #-}
+```
+
+The `MINIMAL` pragma tells us that we only need to define `empty` and `<|>` in
+order to be a valid instance. While there is no way to express it in the
+Haskell definition, `(<|>)` must be an associative binary operator and `empty`
+must act as the identity such that the following holds:
+
+```
+empty <|> alt   === alt
+alt   <|> empty === alt
+```
+
+The final thing that we must satisfy in order to define an `Alternative`
+instance for `Parser` is that `Parser` must also have an `Applicative`
+instance, and `Applicative` requires `Functor`, so let's start there:
+
+> instance Functor Parser where
+>   fmap f (P p) = P $ \s -> [ (f x, cs) | (x, cs) <- p s ]
+
+The `Functor` instance let's us `map` over a parser, this is useful even without
+the other instance definitions:
+
+```
+ghci> parse (fmap toLower item) "The Beatles"
+[('t',"he Beatles")]
+```
+
+Now for `Applicative`. Remember that the type of `(<*>)`, when we specialize to `Parser`, is
+`Parser (a -> b) -> Parser a -> Parser b`.
+
+> instance Applicative Parser where
+>   pure = succeed
+>   p <*> x = P $ \s -> [ (f x', cs') | (f , cs) <- parse p s
+>                                     , (x', cs') <- parse x cs ]
+
+In addition to these three primitive parsers, we'll definitely want to be
+be able to to `map` over parsers. This calls for a `Functor` instance:
+
+Let's write a parser that accepts boolean values. The parser will return `Bool`
 values if the input stream has literally "True" or literally "False", and
 return an empty list for any other value.
 
@@ -93,20 +232,6 @@ Now, as long as we ensure that the initial input stream did not start with
 whitespace, we are able to make sure that intial whitespace is not an issue for
 our parsers.
 
-Since our notion of success is a list of parses, it's very easy to define the
-parser that represents failure in all cases, regardless of the input stream:
-
-> failure :: Parser a
-> failure = \s -> []
-
-Almost as simple as the definition of `failure`, is the notion of trivial
-success. Unlike `failure`, `succeed` takes an argument because it's impossible
-to come up with something of _any_ type (the `a` in `Parser a`), so `success`
-takes the value that you'd like to have represent a success.
-
-
-> succeed :: a -> Parser a
-> succeed x = \s -> [(x, s)]
 
 \subsection{Parsing Literals}
 
@@ -139,26 +264,26 @@ We don't always want literal parsing to return the raw `String` though, sometime
 we want to match a literal `String` but have it represent some other type. This is
 easy to accomplish with some addtions to `lit`.
 
-> litWith :: String -> (String -> a) -> Parser a
-> litWith l f s
->   | l == pref = [(f l, dropConsumed l s)]
->   | otherwise = []
->  where
->    pref = take (length l) s
+< litWith :: String -> (String -> a) -> Parser a
+< litWith l f s
+<   | l == pref = [(f l, dropConsumed l s)]
+<   | otherwise = []
+<  where
+<    pref = take (length l) s
 
 Above, `litWith` allows the user to provide a way to convert a `String` into
 the type they desire as the result of the parser. This is strictly more
 general than `lit` as we can define `lit` as
 
-> lit :: String -> Parser String
-> lit l s = litWith l id s
+< lit :: String -> Parser String
+< lit l s = litWith l id s
 
 
 If parsing a known literal always results in the same value, we can just pass
 a constant function to `litWith`. Giving us another useful function:
 
-> litConst :: String -> a -> Parser a
-> litConst l c = litWith l (const c)
+< litConst :: String -> a -> Parser a
+< litConst l c = litWith l (const c)
 
 
 For example, we can define a parser for "True" as follows
@@ -173,26 +298,26 @@ lowercase strings, or strings that cannot begin with a digit, for example.
 A simple illustration of this is a parser for strings that only include
 alphabetical characters.
 
-> alpha :: Parser String
-> alpha s
->   | null word        = [] -- This is very important!
->   | all isAlpha word = [(word, dropConsumed word s)]
->   | otherwise        = []
->  where
->     word = takeWhile (not . isSep) s
+< alpha :: Parser String
+< alpha s
+<   | null word        = [] -- This is very important!
+<   | all isAlpha word = [(word, dropConsumed word s)]
+<   | otherwise        = []
+<  where
+<     word = takeWhile (not . isSep) s
 
 Many languages have rules about the capitalization of variables. Haskell, for
 example, requires that variables begin in lowercase letters. A simpler version
 of this is defined below:
 
-> variable :: Parser String
-> variable s
->   | isCamelCase word = [(word, dropConsumed word s)]
->   | otherwise        = []
->  where
->     word = takeWhile (not . isSep) s
->     isCamelCase (c:cs) = isLower c && all isAlphaNum cs
->     isCamelCase _      = False
+< variable :: Parser String
+< variable s
+<   | isCamelCase word = [(word, dropConsumed word s)]
+<   | otherwise        = []
+<  where
+<     word = takeWhile (not . isSep) s
+<     isCamelCase (c:cs) = isLower c && all isAlphaNum cs
+<     isCamelCase _      = False
 
 
 \subsection{Combining Parsers}
@@ -222,8 +347,8 @@ if `p1` were to succeed, we would never see the possible parses from `p2`,
 which would violate this notion of all possible parses. The solution is
 to be more generous with what we return:
 
-> (<|>) :: Parser a -> Parser a -> Parser a
-> p1 <|> p2 = \s -> p1 s ++ p2 s
+< (<|>) :: Parser a -> Parser a -> Parser a
+< p1 <|> p2 = \s -> p1 s ++ p2 s
 
 The definition of `<|>` is more of what we'd expect from a parser combinator
 library. In fact, most parser combinator libraries provide a function called
@@ -233,8 +358,8 @@ concerns, their meanings tend to align.
 We can naturally extend this idea to taking a list of parsers and performing
 a choice over all of them, and we can represent that as a fold:
 
-> oneOf :: [Parser a] -> Parser a
-> oneOf ps = foldr (<|>) failure ps
+< oneOf :: [Parser a] -> Parser a
+< oneOf ps = foldr (<|>) failure ps
 
 \subsubsection{Sequence}
 
@@ -242,9 +367,9 @@ Now that we can parse alternatives, let's figure out the dual notion of a parser
 that has to accept two sub-parses. You can think of this as 'sequence' or 'and',
 we're going to call it `andThen`, you'll see why in a moment.
 
-> andThen :: Parser a -> Parser b -> Parser (a,b)
-> andThen p1 p2 = \s -> [((x,y), s'') | (x, s')  <- p1 s
->                                     , (y, s'') <- p2 s']
+< andThen :: Parser a -> Parser b -> Parser (a,b)
+< andThen p1 p2 = \s -> [((x,y), s'') | (x, s')  <- p1 s
+<                                     , (y, s'') <- p2 s']
 
 For those that may not be familiar with list comprehensions, let's break this
 down, part by part. Once again, it is important to note that parsers result in
@@ -277,9 +402,9 @@ The user of `andThen` often knows how they want to combine the resulting pair.
 For this reason, it's useful to have a function similar to `andThen` but with
 an additional parameter that specifies the desired combination:
 
-> andThenWith :: (a -> b -> c) -> Parser a -> Parser b -> Parser c
-> andThenWith f p1 p2 = \s -> [(f x y, s'') | (x, s')  <- p1 s
->                                             , (y, s'') <- p2 s']
+< andThenWith :: (a -> b -> c) -> Parser a -> Parser b -> Parser c
+< andThenWith f p1 p2 = \s -> [(f x y, s'') | (x, s')  <- p1 s
+<                                             , (y, s'') <- p2 s']
 
 
 One simple example of `andThenWith` would be parsing something like
@@ -308,15 +433,15 @@ Often grammars allow for repeated sequences of the same pattern (take Our
 we know that many cities have multiple words in their name. This necessitates
 the ability to parse a pattern multiple times, we'll call this `oneOrMany`:
 
-> oneOrMany :: Parser a -> Parser [a]
-> oneOrMany p = andThenWith (:) p (zeroOrMore p)
+< oneOrMany :: Parser a -> Parser [a]
+< oneOrMany p = andThenWith (:) p (zeroOrMore p)
 
 As you can see, in order to parser `oneOrMany` of some parser, `p`, you require
 a successful parse of `p` followed by `zeroOrMore` parses of the same `p`. Now
 we can define `zerOrMore`:
 
-> zeroOrMore :: Parser a -> Parser [a]
-> zeroOrMore p = oneOrMany p <|> succeed []
+< zeroOrMore :: Parser a -> Parser [a]
+< zeroOrMore p = oneOrMany p <|> succeed []
 
 `zeroOrMore` is composed of two choices. If there is at least one pattern to
 parse then `oneOrMany` would succeed!  Of course, `zeroOrMore` should be
@@ -325,11 +450,11 @@ choice of `succeed []`.
 
 A degenerate case of `zeroOrMore` would be `zeroOrOne`, or alternatively `option`:
 
-> parseWith :: (a -> b) -> Parser a -> Parser b
-> parseWith f p = \i -> [(f x, s) | (x, s) <- p i]
+< parseWith :: (a -> b) -> Parser a -> Parser b
+< parseWith f p = \i -> [(f x, s) | (x, s) <- p i]
 
-> option :: Parser a -> Parser (Maybe a)
-> option p = parseWith Just p <|> succeed Nothing
+< option :: Parser a -> Parser (Maybe a)
+< option p = parseWith Just p <|> succeed Nothing
 
 \subsubsection{Generalized Sequence}
 
@@ -380,13 +505,13 @@ about the structure of the code itself. That's another hint to generalize in
 that direction:
 
 
-> f3 :: (a -> b) -> Parser a -> Parser b
-> f3 f p = \s -> case p s of
->                  rs -> map fOfFst rs
->   where
->     -- For each of the possible parses,
->     -- apply the provided function to each result
->     fOfFst (x, s') = (f x, s')
+< f3 :: (a -> b) -> Parser a -> Parser b
+< f3 f p = \s -> case p s of
+<                  rs -> map fOfFst rs
+<   where
+<     -- For each of the possible parses,
+<     -- apply the provided function to each result
+<     fOfFst (x, s') = (f x, s')
 
 Notice that the code didn't change at all for `f3`, so if we hadn't provided a
 type signature to `f2` the compiler would have inferred the type we gave `f3`!
