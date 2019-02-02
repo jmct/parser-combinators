@@ -3,6 +3,7 @@ to solidify your understanding of functions as first-class values and to
 illustrate the common funcitonal programming pattern of a DSL-as-a-library.
 
 > module Chapter1 where
+> import Control.Applicative
 > import Data.List (isPrefixOf)
 > import Data.Char (isSpace, isDigit, isAlpha, toLower
 >                  ,isLower, isAlphaNum, isPunctuation)
@@ -88,12 +89,23 @@ the input stream:
 > char :: Char -> Parser Char
 > char c = sat (== c)
 
-Now we're getting somewhere! We can actually use this parser to accept or
+Another useful parser is one that accepts decimal digits:
+
+> digit :: Parser Char
+> digit = sat (`elem` "0123456789")
+
+We return the literal character and not the numeric value because it is up to
+the consumer of this function to decide how to use the fact that the character
+is a digit.
+
+Now we're getting somewhere! We can actually use these parsers to accept or
 reject inputs:
 
 ```
 ghci> parse (char 'A') "ABBA"
 [('A',"BBA")]
+ghci> parse digit "1975"
+[('1',"975")]
 ghci> parse (char 'A') "Queen"
 []
 ```
@@ -111,7 +123,11 @@ add  : expression '+' expression
 
 The above grammar demonstrates two of the fundamental building blocks for
 parsers: choice (an expression can take the form of a `mult` _or_ an `add`) and
-sequence.
+sequence. The next two sections will deal with each of these in turn. One
+interesting fact is that both are enabled by defining an `Applicative` instance
+for `Parser`.
+
+\subsection{Choice}
 
 Choice can be represented by the `Alternative` type-class, which has the following
 definition
@@ -155,8 +171,88 @@ Now for `Applicative`. Remember that the type of `(<*>)`, when we specialize to 
 
 > instance Applicative Parser where
 >   pure = succeed
->   p <*> x = P $ \s -> [ (f x', cs') | (f , cs) <- parse p s
->                                     , (x', cs') <- parse x cs ]
+>   p1 <*> p2 = P $ \s -> [ (f x', cs') | (f , cs) <- parse p1 s
+>                                       , (x', cs') <- parse p2 cs ]
+
+You may wonder how a parser can return function, and while there are
+a few ways, the most common case is that you partially apply a function
+using `fmap`. You can try the following at the repl:
+
+```
+ghci> let pLess = fmap (<) item
+ghci> :t pLess
+pLess :: Parser (Char -> Bool)
+```
+
+This will be very useful when we deal with sequence in the next section.
+
+With out `Applicative` instance in place we can now properly define our
+`Alternative` instance in order to get choice:
+
+> instance Alternative Parser where
+>   empty = failure
+>   (P p1) <|> (P p2) = P $ \s -> p1 s ++ p2 s
+
+There are a few valid definitions of `<|>`, the one we have chosen above is the
+'traditional' definition, and most general (it allows more grammars). However,
+these options can have profound consequences on performance and error messages,
+so the definition of `<|>` is something that we will return to a few times
+throughout this document.
+
+With our `Alternative` instance in hand, we can now make parsers that induce a
+choice. Remembering our `digit` parser from before:
+
+> hexDigit :: Parser Char
+> hexDigit = digit <|> sat (`elem` "abcdefABCDEF")
+
+Next, we address the sequencing of `Parser`s. The good news is that we already
+have all the machinery in place!
+
+\subsection{Sequence}
+
+The sequencing of parsers also depends on our `Applicative` instance,
+recall our definition of `<*>`:
+
+```{.haskell}
+  p1 <*> p2 = P $ \s -> [ (f x', cs') | (f , cs) <- parse p1 s
+                                      , (x', cs') <- parse p2 cs ]
+```
+
+The second generator in our list comprehension (`(x', cs') <- parse x cs`)
+depends explicitly on the results of our first generator, `cs`. This dependency
+enforces a sequencing of the parsers, `p1` must decide how much of the input
+stream it will consume before we can provide the rest of the input stream to
+`p2`.
+
+This means that `<*>` can be used as a sequencing operator, but with the caveat
+that its first argument must be a `Parser` that results in a function. As we
+saw earlier, this can be accomplished by using `fmap` to partially apply a
+function to a parser's result. Say we wanted to combine two parsers and have a
+parser that returns a pair:
+ 
+> pair :: Parser a -> Parser b -> Parser (a,b)
+> pair p q = (,) <$> p <*> q
+
+The infix `fmap` (`<$>`) has higher precedence than `<*>`, so the definition
+could be written as `((,) <$> p) <*> q` without changing its meaning.
+
+Using this pattern we can now define a parser for literal strings, which takes
+the desired string and succeed only when the begining of the input stream
+matches that string exactly. This is exactly the same as a sequence of `char`
+parsers, one for each character in the desired string literal:
+
+> string :: String -> Parser String
+> string ""     = succeed ""
+> string (c:cs) = (:) <$> char c <*> string cs
+
+```
+ghci> parse (string "The Beatles") "The Beatles"
+[("The Beatles","")]
+ghci> parse (string "The Beatles") "The Kinks"
+[]
+ghci> parse (string "The Beatles") "The Beatles and The Kinks"
+[("The Beatles"," and The Kinks")]
+```
 
 In addition to these three primitive parsers, we'll definitely want to be
 be able to to `map` over parsers. This calls for a `Functor` instance:
